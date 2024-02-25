@@ -1,0 +1,75 @@
+- name: Remove "kubeadm", "kubectl", "kubelet" packages
+  ansible.builtin.apt:
+    pkg:
+    - kubeadm
+    - kubectl
+    - kubelet
+    state: absent
+    force: true
+
+- name: Reboot immediately
+  shell: "sleep 5 && reboot"
+  async: 1
+  poll: 0
+
+- name: Wait for the reboot to complete if there was a change.
+  wait_for_connection:
+    connect_timeout: 180
+    sleep: 10
+    delay: 10
+    timeout: 500
+
+- name: Remove directory kube
+  ansible.builtin.file:
+    state: absent
+    path: $HOME/.kube
+
+- name: Remove directory etcd
+  ansible.builtin.file:
+    state: absent
+    path: /var/lib/etcd
+
+- name: Remove directory kubelet
+  ansible.builtin.file:
+    state: absent
+    path: /var/lib/kubelet
+
+- name: Remove directory kubernetes
+  ansible.builtin.file:
+    state: absent
+    path: /etc/kubernetes
+
+- name: Remove directory /opt/cni
+  ansible.builtin.file:
+    state: absent
+    path: /opt/cni
+
+- name: Remove directory /var/lib/cni
+  ansible.builtin.file:
+    state: absent
+    path: /var/lib/cni
+
+- name: Remove directory /etc/cni
+  ansible.builtin.file:
+    state: absent
+    path: /etc/cni/
+
+- name: Remove directory /run/flannel
+  ansible.builtin.file:
+    state: absent
+    path: /run/flannel
+
+- name: Remove directory /var/run/flannel
+  ansible.builtin.file:
+    state: absent
+    path: /var/run/flannel
+
+- name: Remove dependencies that are no longer required and purge their configuration files
+  ansible.builtin.apt:
+    autoremove: yes
+    purge: true
+
+- name: Reboot immediately
+  shell: "sleep 5 && reboot"
+  async: 1
+  poll: 0

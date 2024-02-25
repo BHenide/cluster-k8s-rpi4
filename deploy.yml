@@ -19,20 +19,20 @@
   roles:
     - nodes
 
-#Install the shared storage on rpi-k8s-storage
-- hosts: storage
-  become: true
-  roles:
-    - apps/nfs-server
-
-# This part will install and set up the applications/services.
-- hosts: master
-  become: true
-  roles:
-    - k8s/namespaces
-    - k8s/linkerd
-    - k8s/dashboard
-    - apps/dynamic-dns
-    - apps/wireguard
-    - k8s/service-acc
-    - apps/jenkins-trivy
+##Install the shared storage on rpi-k8s-storage
+#- hosts: storage
+#  become: true
+#  roles:
+#    - apps/nfs-server
+#
+## This part will install and set up the applications/services.
+#- hosts: master
+#  become: true
+#  roles:
+#    - k8s/namespaces
+#    - k8s/linkerd
+#    - k8s/dashboard
+#    - apps/dynamic-dns
+##    - apps/wireguard
+#    - k8s/service-acc
+##    - apps/jenkins-trivy

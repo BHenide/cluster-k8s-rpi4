@@ -1,0 +1,53 @@
+# Kubeadm reset
+- name: Kubeadm reset
+  shell: kubeadm reset --force
+
+- name: Remove directory kube
+  ansible.builtin.file:
+    state: absent
+    path: $HOME/.kube
+
+- name: Remove directory etcd
+  ansible.builtin.file:
+    state: absent
+    path: /var/lib/etcd
+
+- name: Remove directory kubelet
+  ansible.builtin.file:
+    state: absent
+    path: /var/lib/kubelet
+
+- name: Remove directory kubernetes
+  ansible.builtin.file:
+    state: absent
+    path: /etc/kubernetes
+
+- name: Remove directory /var/lib/cni
+  ansible.builtin.file:
+    state: absent
+    path: /var/lib/cni
+
+- name: Remove directory /opt/cni
+  ansible.builtin.file:
+    state: absent
+    path: /opt/cni
+
+- name: Remove directory /etc/cni
+  ansible.builtin.file:
+    state: absent
+    path: /etc/cni/
+
+- name: Remove directory /run/flannel
+  ansible.builtin.file:
+    state: absent
+    path: /run/flannel
+
+- name: Remove directory /var/run/flannel
+  ansible.builtin.file:
+    state: absent
+    path: /var/run/flannel
+
+- name: Reboot immediately
+  shell: "sleep 5 && reboot"
+  async: 1
+  poll: 0

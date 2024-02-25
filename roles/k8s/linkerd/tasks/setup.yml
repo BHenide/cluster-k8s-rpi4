@@ -26,4 +26,5 @@
   shell: "kubectl apply -f /tmp/linkerd.yml"
 
 - name: Upgrade the control plane
-  shell: "linkerd upgrade | kubectl apply --prune -l linkerd.io/control-plane-ns=linkerd -f -"
+  shell: "linkerd upgrade --crds | kubectl apply --prune -l linkerd.io/control-plane-ns=linkerd -f -"
+  ignore_errors: true

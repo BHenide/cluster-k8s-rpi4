@@ -1,21 +1,46 @@
 # Set rpi-k8s-master hostname
 - name: Set hostname
   shell: hostnamectl set-hostname rpi-k8s-master
-  when: ansible_default_ipv4.address == "{{ IpAddress.k8s_master }}"
+  when: ansible_default_ipv4.address == IpAddress.k8s_master
 
 # Set rpi-k8s-node-1 hostname
 - name: Set hostname
   shell: hostnamectl set-hostname rpi-k8s-node-1
-  when: ansible_default_ipv4.address == "{{ IpAddress.k8s_node_1 }}"
+  when: ansible_default_ipv4.address == IpAddress.k8s_node_1
 
 #Set rpi-k8s-node-2 hostname
 - name: Set hostname
   shell: hostnamectl set-hostname rpi-k8s-node-2
-  when: ansible_default_ipv4.address == "{{ IpAddress.k8s_node_2 }}"
+  when: ansible_default_ipv4.address == IpAddress.k8s_node_2
 
 # Set /etc/hosts
 - name: Set /etc/hosts
   shell: echo '{{ IpAddress.k8s_master }} rpi-k8s-master\n{{ IpAddress.k8s_node_1 }} rpi-k8s-node-1\n{{ IpAddress.k8s_node_2 }} rpi-k8s-node-2\n{{ IpAddress.k8s_storage }} rpi-k8s-storage' > /etc/hosts
+
+- name: Update and upgrade apt packages
+  apt:
+    upgrade: 'True'
+    update_cache: 'True'
+
+- name: Create directory for keyrings
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: 0755
+
+#- name: Get Kubernetes apt-get
+#  ansible.builtin.get_url:
+#    url: https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key
+#    dest: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+#    mode: '0755'
+#    force: true
+
+#- name: Add Kubernetes repo
+#  ansible.builtin.apt_repository:
+#    filename: /etc/apt/sources.list.d/kubernetes.list
+#    repo: 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /'
 
 - name: Get Kubernetes apt-get
   apt_key:
@@ -39,29 +64,31 @@
   apt:
     name: "{{ packages }}"
     state: latest
-    update_cache: yes
 
 - name: Install K8s packages
   apt:
     name: "{{ K8s_packages }}"
     state: present
-    update_cache: yes
 
 - name: Add Docker GPG apt Key
   apt_key:
-    url: https://download.docker.com/linux/ubuntu/gpg
+    url: https://download.docker.com/linux/debian/gpg
     state: present
 
 - name: Add Docker Repository
   apt_repository:
-    repo: deb https://download.docker.com/linux/ubuntu bionic stable
+    repo: deb https://download.docker.com/linux/debian bookworm stable
     state: present
 
 - name: Update apt and install docker-ce
-  apt:
-    update_cache: yes
+  apt:    
     name: docker-ce
     state: latest
+
+- name: Remove externally managed
+  ansible.builtin.file:
+    state: absent
+    path: /usr/lib/python3.11/EXTERNALLY-MANAGED
 
 - name: Install Docker Module for python
   pip:
@@ -72,19 +99,49 @@
     cmd: |
       dpkg --set-selections << EOF
       kubeadm hold
-      kubelet hold
-      kubectl hold
+      kubelet hold 
+      kubectl hold 
       EOF
     warn: false
 
-- name: remove swap file
-  mount:
-    name: swap
-    fstype: swap
-    state: absent
-
 - name: Disable swap
-  command: swapoff -a
+  block:
+    - name: Deactivate swap
+      ansible.builtin.command:
+        cmd: dphys-swapfile swapoff
+      changed_when: false
+      failed_when: false
+
+    - name: Remove swap file
+      ansible.builtin.file:
+        path: "{{ (swap_config['CONF_SWAPFILE'] | default(false)) | ternary(swap_config['CONF_SWAPFILE'], '/var/swap') }}"
+        state: absent
+
+    - name: Remove configuration
+      ansible.builtin.file:
+        path: /etc/dphys-swapfile
+        state: absent
+
+    - name: Remove package
+      ansible.builtin.apt:
+        name: dphys-swapfile
+        state: absent
+
+- name: Set bridge-nf-call
+  shell:
+    cmd: |
+      cat <<EOF >>/etc/ufw/sysctl.conf
+      net/bridge/bridge-nf-call-ip6tables = 1
+      net/bridge/bridge-nf-call-iptables = 1
+      net/bridge/bridge-nf-call-arptables = 1
+      EOF
+
+- name: Set firewall rules UFW
+  become: yes
+  ansible.builtin.shell:  |
+    ufw allow 10251/tcp
+    ufw allow 10255/tcp
+    ufw reload
 
 - name: create daemon.json file - cgroupdriver
   shell: |
@@ -99,12 +156,60 @@
      }
      EOF
 
+#- name: Enable cgroups limit support
+#  shell: sed -i '$ s/$/ cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1 swapaccount=1/' /boot/firmware/cmdline.txt
+#  register: cgroups_task
+#  become: yes
+
 - name: Enable cgroups limit support
-  shell: sudo sed -i '$ s/$/ cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1 swapaccount=1/' /boot/firmware/cmdline.txt
+  replace:
+    path: /boot/firmware/cmdline.txt
+    regexp: '^([\w](?!.*\b{{ item }}\b).*)$'
+    replace: '\1 {{ item }}'
+  loop:
+    - "cgroup_enable=cpuset"
+    - "cgroup_memory=1"
+    - "cgroup_enable=memory"
+    - "swapaccount=1"
   register: cgroups_task
 
 - name: Set timezone
   command: /usr/bin/timedatectl set-timezone {{ TimeZone }}
+  become: yes
+
+- name: Remove the old containerd
+  shell: "apt remove containerd"
+  become: yes
+
+- name: Update apt packages
+  apt:
+    update_cache: yes
+
+- name: Install a new containerd
+  shell: "apt install containerd.io"
+  become: yes
+
+- name: Remove the installed default config file
+  file: 
+    path: /etc/containerd/config.toml
+    state: absent
+
+- name: Download portmap
+  ansible.builtin.get_url:
+    url: https://github.com/containernetworking/plugins/releases/download/v1.4.0/cni-plugins-linux-arm64-v1.4.0.tgz
+    dest: /tmp/cni-plugins-linux-arm64-v1.4.0.tgz
+    mode: '0777'
+
+- name: Create directory /opt/cni/bin/
+  file:
+    path: /opt/cni/bin/
+    state: directory
+    owner: root
+    group: root
+    mode: 0777
+
+- name: Install portmap
+  shell: "tar zxvf /tmp/cni-plugins-linux-arm64-v1.4.0.tgz -C /opt/cni/bin/ ./portmap"
   become: yes
 
 - name: Reboot immediately if there was a change.
@@ -115,8 +220,8 @@
 
 - name: Wait for the reboot to complete if there was a change.
   wait_for_connection:
-    connect_timeout: 20
-    sleep: 5
-    delay: 5
-    timeout: 300
+    connect_timeout: 180
+    sleep: 10
+    delay: 10
+    timeout: 500
   when: cgroups_task is changed

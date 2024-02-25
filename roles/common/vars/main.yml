@@ -1,4 +1,5 @@
 packages:
+  - ufw
   - bash-completion
   - apt-transport-https
   - ca-certificates

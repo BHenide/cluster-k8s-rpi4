@@ -21,8 +21,17 @@
     group: root
     mode: 0775
 
-- name: Setup permission to root account
-  shell: echo "/mnt/nfsshare *(rw,all_squash,insecure,async,no_subtree_check,anonuid=0,anongid=0)" >> /etc/exports
+- name: Check if the line exists in the file
+  command: grep -q "/mnt/nfsshare *(rw,all_squash,insecure,async,no_subtree_check,anonuid=0,anongid=0)" /etc/exports
+  register: grep_result
+  ignore_errors: true
+
+- name: Add line to /etc/exports if it doesn't exist
+  lineinfile:
+    path: /etc/exports
+    line: "/mnt/nfsshare *(rw,all_squash,insecure,async,no_subtree_check,anonuid=0,anongid=0)"
+    insertafter: EOF
+  when: grep_result.rc != 0
 
 - name: Update the current table of exports available to the NFS server.
   shell: exportfs -ra

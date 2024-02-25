@@ -1,0 +1,14 @@
+---
+# This part will reset Kubernetes on master.
+- hosts:
+    - master
+  become: true
+  roles:
+    - masters/reset
+
+# This part will reset Kubernetes on nodes.
+- hosts:
+    - nodes
+  become: true
+  roles:
+    - nodes/reset

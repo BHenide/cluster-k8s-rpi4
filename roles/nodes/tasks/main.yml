@@ -9,16 +9,41 @@
     state: restarted
     daemon_reload: yes
     name: kubelet
+  
+- name: Check if Kubernetes has already been joined
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubernetes_init_stat
 
 - name: kubeadm register
   shell: kubeadm reset -f >> reset.log #clean up local file system
   args:
     chdir: $HOME #where runs this
     creates: reset.log
+  when: not kubernetes_init_stat.stat.exists
 
-- name: Join node to cluster
-  shell: "{{ hostvars[groups['master'][0]]['join_command'] }} >> node.log"
-  ignore_errors: yes
+- name: Copy join command from Ansible host to the worker nodes
+  become: yes
+  copy:
+    src: /tmp/kubernetes_join_command
+    dest: /tmp/kubernetes_join_command
+    mode: 0777
+  when: not kubernetes_init_stat.stat.exists
+
+- name: Join the Worker nodes to the cluster
+  become: yes
+  command: sh /tmp/kubernetes_join_command
+  register: joined_or_not
+  when: not kubernetes_init_stat.stat.exists
+
+- name: Node join status
+  ansible.builtin.debug:
+    msg: "{{ joined_or_not.stdout }}"
+  when: not kubernetes_init_stat.stat.exists
+
+- name: Allow pod scheduled on the master node
+  shell: "kubectl taint nodes --all specialnode=false:NoSchedule --overwrite"
   args:
     chdir: $HOME
     creates: node.log
+  when: not kubernetes_init_stat.stat.exists

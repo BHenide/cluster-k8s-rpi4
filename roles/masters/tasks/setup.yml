@@ -1,8 +1,13 @@
 ---
-# - name: Add autocompeltion source
-#   shell: echo 'source /usr/share/bash-completion/bash_completion' >>~/.bashrc
-# - name: Kubectl autocompletion
-#   shell: echo 'source <(kubectl completion bash)' >>~/.bashrc && echo 'alias k=kubectl' >>~/.bashrc
+- name: Add autocompeltion source
+  shell:
+    cmd: |
+        kubectl completion bash > ~/.kube/completion.bash.inc
+        printf "
+        source '$HOME/.kube/completion.bash.inc'
+        " >> $HOME/.bash_profile
+        source $HOME/.bash_profile
+  ignore_errors: true
 
 - name: Check if Kubernetes has already been initialized
   stat:
@@ -23,104 +28,66 @@
 
 - name: Initialize Kubernetes master
   command: >
-    kubeadm init --apiserver-advertise-address="{{ IpAddress.k8s_master }}" --pod-network-cidr={{ K8s.podSubnet }}
+    kubeadm init --apiserver-advertise-address="{{ IpAddress.k8s_master }}" --pod-network-cidr={{ K8s.podSubnet }} --upload-certs
   register: kubeadmin_init
   when: not kubernetes_init_stat.stat.exists
 
-- name: Create .kube directory
-  file:
-    path: $HOME/.kube
-    state: directory
-    owner: root
-    group: root
-    mode: 0775
+- name: Change own
+  shell: mkdir -p $HOME/.kube && cp -i /etc/kubernetes/admin.conf $HOME/.kube/config && chown $(id -u):$(id -g) $HOME/.kube/config
+  when: not kubernetes_init_stat.stat.exists
 
-- name: copy default cluster configuration
-  shell: cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-  args:
-    chdir: $HOME
-    creates: $HOME/.kube/config
+#- name: Create .kube directory
+#  file:
+#    path: $HOME/.kube
+#    state: directory
+#    owner: root
+#    group: root
+#    mode: 0775
 
-- name: change config mode
-  file:
-    path: $HOME/.kube/config
-    state: file
-    owner: root
-    group: root
-    mode: 0660
+#- name: copy default cluster configuration
+#  shell: cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+#  args:
+#    chdir: $HOME
+#    creates: $HOME/.kube/config
 
-- name: update kernel settings [bridge-nf-call-ip6tables]
-  become: yes
-  sysctl:
-    name: net/bridge/bridge-nf-call-ip6tables
-    value: 1
-    sysctl_set: yes
-    state: present
-    reload: yes
+#- name: change config mode
+#  file:
+#    path: $HOME/.kube/config
+#    state: file
+#    owner: root
+#    group: root
+#    mode: 0660
 
-- name: update kernel settings [net/bridge/bridge-nf-call-iptables]
-  become: yes
-  sysctl:
-    name: net/bridge/bridge-nf-call-iptables
-    value: 1
-    sysctl_set: yes
-    state: present
-    reload: yes
-
-- name: update kernel settings [net/bridge/bridge-nf-call-arptables]
-  become: yes
-  sysctl:
-    name: net/bridge/bridge-nf-call-arptables
-    value: 1
-    sysctl_set: yes
-    state: present
-    reload: yes
-
-- name: Convert Controller Manager Yaml template
-  template:
-    src: kube-controller-manager.yml.j2
-    dest: /etc/kubernetes/manifests/kube-controller-manager.yml
-    owner: root
-    group: root
-    mode: 0777
-
-- name: Convert Scheduler Yaml template
-  template:
-    src: kube-scheduler.yaml.j2
-    dest: /etc/kubernetes/manifests/kube-scheduler.yaml
-    owner: root
-    group: root
-    mode: 0777
-
-- name: restart kubectl
-  shell: "systemctl restart kubelet"
-
-- name: Pause for 30 seconds to nodes be ready
-  pause:
-    seconds: 30
+#- name: Change own
+#  file:
+#    path: $HOME/.kube/config 
+#    owner: "{{ ansible_user }}"
+#    group: "{{ ansible_user }}"
+#    mode: 0644
 
 - name: Convert flannel Yaml template
-  become: false
+  become: true
   template:
     src: kube-flannel.yml.j2
     dest: /tmp/kube-flannel.yml
     mode: 0777
 
+#- name: Delete old flannel
+#  shell: kubectl delete -f /tmp/kube-flannel.yml
+
+#sed -i 's#10.244.0.0/16#10.1.0.0/16#' kube-flannel.yml
+#sed -i 's/vxlan/host-gw/' kube-flannel.yml
+#https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+#https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
 - name: Apply flannel
-  shell: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml >> flannel-apply.log
-  args:
-    chdir: $HOME
-    creates: flannel-apply.log
+  shell: kubectl apply -f /tmp/kube-flannel.yml
 
 - name: Convert Metric Yaml template
-  become: false
+  become: true
   template:
     src: metric-components.yaml.j2
     dest: /tmp/metric-components.yaml
     mode: 0777
 
 - name: apply Metric Yaml template
-  shell: kubectl apply -f /tmp/metric-components.yaml >> metric-components.log
-  args:
-    chdir: $HOME
-    creates: metric-components.log
+  shell: kubectl apply -f /tmp/metric-components.yaml
